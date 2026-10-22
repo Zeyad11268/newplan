@@ -75,6 +75,7 @@ input::placeholder{color:var(--muted);opacity:.7}
 .x:hover{background:var(--surface2)}
 .i-ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:10px}
 .price{display:flex;align-items:center;gap:6px;flex:1 1 130px;min-width:0;font-size:13px;color:var(--muted)}
+.price input:placeholder-shown{border-color:var(--goldline);border-width:1.5px}
 .price input,.stepper input{height:40px;text-align:center;font-variant-numeric:tabular-nums}
 .stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--bg)}
 .stepper button{width:40px;height:40px;border:0;background:transparent;color:var(--brand);font-size:22px;line-height:1}
@@ -304,7 +305,7 @@ function renderItems(){
   el.innerHTML=it.map(function(i){
     return '<div class="item"><div class="i-top"><div><div class="i-name">'+esc(i.name)+'</div>'+(i.unit?'<div class="i-unit">'+esc(i.unit)+'</div>':'')+'</div>'+
       '<button class="x" data-act="rm" data-id="'+i.id+'" aria-label="حذف الصنف">'+X_ICON+'</button></div>'+
-      '<div class="i-ctrl"><label class="price"><input data-it="price" data-id="'+i.id+'" inputmode="decimal" value="'+esc(i.price)+'" aria-label="السعر"><span>ج.م</span></label>'+
+      '<div class="i-ctrl"><label class="price"><input data-it="price" data-id="'+i.id+'" inputmode="decimal" value="'+esc(i.price)+'" placeholder="اكتب السعر" aria-label="سعر الوحدة"><span>ج.م</span></label>'+
       '<div class="stepper"><button data-act="dec" data-id="'+i.id+'" aria-label="أقل">−</button><input data-it="qty" data-id="'+i.id+'" inputmode="decimal" value="'+esc(i.qty)+'" aria-label="العدد"><button data-act="inc" data-id="'+i.id+'" aria-label="أكثر">+</button></div>'+
       '<div class="i-total" data-line="'+i.id+'"></div></div></div>';
   }).join('');
@@ -319,7 +320,7 @@ function addProduct(pid){
   var p=S.products.find(function(x){return x.id===pid});if(!p)return;
   var ex=S.draft.items.find(function(i){return i.pid===pid});
   if(ex)ex.qty=num(ex.qty)+1;
-  else S.draft.items.push({id:uid(),pid:pid,name:p.name,unit:p.unit||'',price:p.price,qty:1});
+  else S.draft.items.push({id:uid(),pid:pid,name:p.name,unit:p.unit||'',price:'',qty:1});
   renderItems();updateTotals();renderPList();saveDraftSoon();
 }
 function focusErr(id,msg){
@@ -329,6 +330,12 @@ function tryPreview(){
   var inv=normInv(S.draft);
   if(!inv.client){focusErr('d-client','اكتب اسم العميل');return}
   if(!inv.items.length){toast('أضف صنف واحد على الأقل');return}
+  var np=S.draft.items.find(function(i){return num(i.qty)>0&&num(i.price)<=0});
+  if(np){
+    var pe=document.querySelector('[data-it="price"][data-id="'+np.id+'"]');
+    toast('اكتب سعر «'+np.name+'»');if(pe){pe.scrollIntoView({block:'center',behavior:'smooth'});pe.focus()}
+    return;
+  }
   if(!inv.no){focusErr('d-no','اكتب رقم الفاتورة');return}
   openPreview(inv,'draft');
 }
@@ -349,11 +356,10 @@ function renderSheet(){
     el.innerHTML='<div class="sheet-bd" data-act="close-sheet"></div><div class="sheet" role="dialog" aria-label="منتج"><div class="sheet-in"><div class="grab"></div>'+
       '<div class="sh-head"><b>'+(p?'تعديل منتج':'منتج جديد')+'</b><button class="btn sm ghost" data-act="close-sheet">إلغاء</button></div>'+
       '<div class="sh-body"><label class="f">اسم المنتج<input id="pe-name" value="'+esc(p?p.name:'')+'" autocomplete="off"></label>'+
-      '<div class="two"><label class="f">السعر (ج.م)<input id="pe-price" inputmode="decimal" value="'+esc(p?p.price:'')+'"></label>'+
-      '<label class="f">الوحدة<input id="pe-unit" list="units" value="'+esc(p?(p.unit||''):'')+'" placeholder="قطعة"><datalist id="units"><option value="قطعة"><option value="علبة"><option value="رزمة"><option value="كرتونة"><option value="كيلو"><option value="متر"></datalist></label></div>'+
+      '<label class="f">الوحدة (اختياري)<input id="pe-unit" list="units" value="'+esc(p?(p.unit||''):'')+'" placeholder="قطعة"><datalist id="units"><option value="قطعة"><option value="علبة"><option value="رزمة"><option value="كرتونة"><option value="كيلو"><option value="متر"></datalist></label>'+
       '<div class="err" id="pe-err"></div><button class="btn primary" data-act="save-prod">حفظ</button>'+
       (p?'<button class="link danger" data-act="del-prod" data-id="'+p.id+'">حذف المنتج</button>':'')+
-      (p?'<div class="note">تغيير السعر هنا مبيغيّرش الفواتير المحفوظة.</div>':'')+'</div></div></div>';
+      '<div class="note">السعر بتكتبه في الفاتورة نفسها لكل صنف.</div>'+'</div></div></div>';
     if(!p)setTimeout(function(){var n=$('#pe-name');if(n)n.focus()},60);
   }
   lockScroll();renderBar();
@@ -367,17 +373,17 @@ function renderPList(){
   if(!list.length){el.innerHTML='<div class="empty sm">مفيش منتج بالاسم ده.</div>';return}
   el.innerHTML=list.map(function(p){
     var ex=S.draft.items.find(function(i){return i.pid===p.id});
-    return '<button class="row" data-act="pick" data-id="'+p.id+'"><span class="main"><span class="t">'+esc(p.name)+'</span><span class="s">'+(p.unit?esc(p.unit)+' · ':'')+money(num(p.price))+' ج.م</span></span>'+
+    return '<button class="row" data-act="pick" data-id="'+p.id+'"><span class="main"><span class="t">'+esc(p.name)+'</span><span class="s">'+esc(p.unit||'بدون وحدة')+'</span></span>'+
       (ex?'<span class="cnt">×'+esc(qf(ex.qty))+'</span>':'')+svg('<path d="M12 5v14M5 12h14"/>',20)+'</button>';
   }).join('');
 }
 async function saveProduct(){
-  var name=$('#pe-name').value.trim(),price=num($('#pe-price').value),unit=$('#pe-unit').value.trim(),err=$('#pe-err');
+  var name=$('#pe-name').value.trim(),unit=$('#pe-unit').value.trim(),err=$('#pe-err');
   if(!name){err.textContent='اكتب اسم المنتج';return}
   var dup=S.products.some(function(p){return p.id!==S.sheet.id&&String(p.name).trim().toLowerCase()===name.toLowerCase()});
   if(dup){err.textContent='المنتج ده موجود بالفعل';return}
   var id=S.sheet.id||uid();
-  try{await put('products',id,{name:name,price:price,unit:unit})}catch(e){werr(e);return}
+  try{await put('products',id,{name:name,unit:unit})}catch(e){werr(e);return}
   closeSheet();toast('اتحفظ المنتج');
   if(S.tab==='products')renderPrList();
 }
@@ -392,10 +398,10 @@ function renderPrList(){
   if(!loaded()){el.innerHTML='<div class="empty sm">جاري التحميل…</div>';return}
   var q=S.prq.trim().toLowerCase();
   var list=S.products.filter(function(p){return !q||String(p.name).toLowerCase().indexOf(q)>-1});
-  if(!S.products.length){el.innerHTML='<div class="empty"><b>مفيش منتجات لسه</b><span>اضغط «+ منتج» وأضف أول منتج بسعره.</span></div>';return}
+  if(!S.products.length){el.innerHTML='<div class="empty"><b>مفيش منتجات لسه</b><span>اضغط «+ منتج» وأضف أول منتج.</span></div>';return}
   if(!list.length){el.innerHTML='<div class="empty sm">مفيش منتج بالاسم ده.</div>';return}
   el.innerHTML=list.map(function(p){
-    return '<button class="row" data-act="edit-prod" data-id="'+p.id+'"><span class="main"><span class="t">'+esc(p.name)+(p.sample?'<span class="tag">مثال</span>':'')+'</span><span class="s">'+esc(p.unit||'—')+'</span></span><span class="v">'+money(num(p.price))+' ج.م</span></button>';
+    return '<button class="row" data-act="edit-prod" data-id="'+p.id+'"><span class="main"><span class="t">'+esc(p.name)+(p.sample?'<span class="tag">مثال</span>':'')+'</span><span class="s">'+esc(p.unit||'بدون وحدة')+'</span></span>'+svg('<path d="M15 6l-6 6 6 6"/>',20)+'</button>';
   }).join('');
 }
 
