@@ -288,7 +288,7 @@ function lockScroll(){document.body.style.overflow=(S.sheet||S.pv)?'hidden':''}
 /* ---------- invoice builder ---------- */
 function viewInvoice(){
   var d=S.draft,editing=isSaved(d.id),isQ=d.type==='quote';
-  if(d.noAuto&&!editing)d.date=today();
+  if(d.noAuto&&!editing&&!d.dateEdited)d.date=today();
   $('#view').innerHTML=
    '<h1>'+(editing?tl(d).editT:tl(d).newT)+'</h1>'+
    '<div class="seg" role="group" aria-label="نوع المستند"><button data-act="doctype" data-id="invoice" aria-pressed="'+((d.type||'invoice')==='invoice')+'">فاتورة</button><button data-act="doctype" data-id="quote" aria-pressed="'+(d.type==='quote')+'">عرض سعر</button></div>'+
@@ -297,7 +297,7 @@ function viewInvoice(){
      '<label class="f full">اسم العميل<input id="d-client" data-d="client" value="'+esc(d.client)+'" autocomplete="off" placeholder="مثال: شركة الأمل"></label>'+
      '<label class="f full">تليفون العميل<input id="d-phone" data-d="phone" type="tel" inputmode="tel" value="'+esc(d.phone)+'" placeholder="01xxxxxxxxx"></label>'+
      '<label class="f">'+tl(d).no+' (تلقائي)<input id="d-no" value="'+esc(d.no)+'" readonly></label>'+
-     '<label class="f">التاريخ (تلقائي)<input id="d-date" value="'+esc(fmtDate(d.date))+'" readonly></label>'+
+     '<label class="f">التاريخ<input id="d-date" data-d="date" type="date" value="'+esc(d.date)+'"></label>'+
    '</div>'+
    '<div class="sec">الأصناف</div>'+
    '<div class="card" id="items"></div>'+
@@ -340,7 +340,7 @@ function focusErr(id,msg){
   var e=$('#'+id);toast(msg);if(e){e.scrollIntoView({block:'center',behavior:'smooth'});e.focus()}
 }
 function tryPreview(){
-  if(S.draft.noAuto&&!isSaved(S.draft.id))S.draft.date=today();
+  if(S.draft.noAuto&&!isSaved(S.draft.id)&&!S.draft.dateEdited)S.draft.date=today();
   var inv=normInv(S.draft);
   if(!inv.client){focusErr('d-client','اكتب اسم العميل');return}
   if(!inv.items.length){toast('أضف صنف واحد على الأقل');return}
@@ -677,6 +677,7 @@ document.addEventListener('input',function(e){
   var t=e.target;
   if(t.dataset.d){
     S.draft[t.dataset.d]=t.value;
+    if(t.dataset.d==='date')S.draft.dateEdited=true;
     if(t.dataset.d==='no')S.draft.noAuto=false;
     if(t.dataset.d==='discount')updateTotals();
     saveDraftSoon();
