@@ -438,9 +438,9 @@ function renderIList(){
 
 /* ---------- preview, save, export ---------- */
 async function openPreview(inv,from){
-  S.pv={inv:inv,from:from,canvas:null};S.busy=false;renderPv();
+  S.pv={inv:inv,from:from,canvas:null,png:null};S.busy=false;S.waHint=false;renderPv();
   var mine=S.pv;
-  try{var cv=await drawInvoice(inv);if(S.pv===mine){mine.canvas=cv;mountCanvas()}}
+  try{var cv=await drawInvoice(inv);if(S.pv===mine){mine.canvas=cv;mountCanvas();cv.toBlob(function(b){mine.png=b},'image/png')}}
   catch(e){var l=$('#pv-canvas');if(l)l.textContent='مقدرتش أجهز الفاتورة. جرب تاني.'}
 }
 function closePreview(){S.pv=null;renderPv()}
@@ -457,20 +457,38 @@ function mountCanvas(){
   var w=$('#pv-wrap');if(!w||!S.pv||!S.pv.canvas)return;
   w.innerHTML='';w.appendChild(S.pv.canvas);S.pv.canvas.setAttribute('role','img');S.pv.canvas.setAttribute('aria-label','معاينة الفاتورة');
 }
-function waLink(inv){
+function waChat(inv){
   var p=String(inv.phone||'').replace(/[٠-٩]/g,function(d){return '٠١٢٣٤٥٦٧٨٩'.indexOf(d)}).replace(/\D/g,'');
   if(p.indexOf('00')===0)p=p.slice(2);else if(p.indexOf('0')===0)p='20'+p.slice(1);
-  var L=[tl(inv).t+' رقم '+inv.no+' - '+CO.name,'العميل: '+inv.client,''];
-  if(inv.type==='quote'){
-    inv.items.forEach(function(i){L.push('• '+i.name+': '+money(i.price)+' ج.م')});
-    L.push('');
-  }else{
-    inv.items.forEach(function(i){L.push('• '+i.name+' × '+qf(i.qty)+' = '+money(i.qty*i.price))});
-    L.push('');if(inv.discount>0)L.push('الخصم: '+money(inv.discount));
-    L.push('الإجمالي: '+money(inv.total)+' ج.م','');
-  }
-  L.push('إدارة / '+CO.owner,CO.name+' - '+CO.phone+' - '+CO.phone2);
-  return 'https://wa.me/'+p+'?text='+encodeURIComponent(L.join('\n'));
+  return p.length>=8?'https://wa.me/'+p:'';
+}
+function pngName(inv){return safeName(tl(inv).t+' '+inv.no+' - '+inv.client)+'.png'}
+async function shareWa(){
+  var p=S.pv;if(!p||!p.canvas||S.busy)return;
+  S.busy=true;renderPvActions();
+  try{
+    var blob=p.png||await new Promise(function(r){p.canvas.toBlob(r,'image/png')});
+    var name=pngName(p.inv),file=null;
+    try{file=new File([blob],name,{type:'image/png'})}catch(e){}
+    if(file&&navigator.canShare&&navigator.canShare({files:[file]})){
+      try{
+        await navigator.share({files:[file]});
+        if(p.from==='draft'&&!isSaved(p.inv.id))await saveCurrent(true);
+        return;
+      }catch(e){if(e&&e.name==='AbortError')return}
+    }
+    if(p.from==='draft'&&!isSaved(p.inv.id))await saveCurrent(true);
+    if(S.dl){await S.dl.save({filename:name,data:blob})}
+    else{
+      var url=URL.createObjectURL(blob),a=document.createElement('a');
+      a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(function(){URL.revokeObjectURL(url)},4000);
+    }
+    S.waHint=true;
+    toast('اتحملت الصورة. ارفقها في محادثة واتساب');
+  }catch(e){
+    if(!(e&&e.code==='declined'))toast('مقدرتش أجهز الصورة. جرب تاني.');
+  }finally{S.busy=false;renderPvActions()}
 }
 function renderPvActions(){
   var el=$('#pv-actions'),p=S.pv;if(!el||!p)return;
@@ -479,9 +497,10 @@ function renderPvActions(){
   else third='<button class="btn" data-act="edit">تعديل</button>';
   var dlOff=false;
   el.innerHTML='<div class="row2"><button class="btn primary" data-act="pdf"'+(S.busy||dlOff?' disabled':'')+'>'+(S.busy?'جاري التجهيز…':'تحميل PDF')+'</button><button class="btn" data-act="img"'+(S.busy||dlOff?' disabled':'')+'>تحميل صورة</button></div>'+
-    '<div class="row2"><a class="btn" href="'+esc(waLink(p.inv))+'" target="_blank" rel="noopener">إرسال واتساب</a>'+third+'</div>'+
+    '<div class="row2"><button class="btn" data-act="wa"'+(S.busy?' disabled':'')+'>إرسال واتساب (صورة)</button>'+third+'</div>'+
+    (S.waHint&&waChat(p.inv)?'<a class="btn" href="'+esc(waChat(p.inv))+'" target="_blank" rel="noopener">فتح محادثة العميل في واتساب</a>':'')+
     (p.from==='history'?'<button class="link danger" data-act="del-inv">حذف '+dt_.t+'</button>':'')+
-    '<div class="note">'+(saved&&p.from==='draft'?'تم الحفظ. ':'')+'واتساب بيبعت ملخص نصي، والـ PDF بتبعته من الملف اللي نزّلته.</div>';
+    '<div class="note">'+(saved&&p.from==='draft'?'تم الحفظ. ':'')+'واتساب بيبعت الفاتورة كصورة. لو جهازك مش بيدعم المشاركة، الصورة بتتحمل وترفقها في المحادثة بنفسك.</div>';
 }
 async function saveCurrent(silent){
   var p=S.pv;if(!p)return false;
@@ -508,7 +527,7 @@ async function exportFile(kind){
       if(!J){toast('مقدرتش أجهز PDF. نزّل صورة بدله.');return}
       blob=makePdf(J,p.canvas);name=base+'.pdf';
     }else{
-      blob=await new Promise(function(r){p.canvas.toBlob(r,'image/png')});name=base+'.png';
+      blob=p.png||await new Promise(function(r){p.canvas.toBlob(r,'image/png')});name=base+'.png';
     }
     if(dl){await dl.save({filename:name,data:blob})}
     else{
@@ -655,6 +674,7 @@ document.addEventListener('click',function(e){
     case 'pv-close':closePreview();break;
     case 'pdf':exportFile('pdf');break;
     case 'img':exportFile('img');break;
+    case 'wa':shareWa();break;
     case 'save':saveCurrent(false);break;
     case 'new-after':S.draft=newDraft(S.draft.type);LS.set('np_draft',null);closePreview();S.tab='invoice';renderAll();window.scrollTo(0,0);break;
     case 'edit':loadIntoDraft(S.pv.inv);closePreview();S.tab='invoice';renderAll();window.scrollTo(0,0);break;
